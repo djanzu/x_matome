@@ -35,11 +35,33 @@ cp .env.example .env
 | --- | --- | --- |
 | `TARGET_USERNAME` | 取得対象の X ユーザー ID（`@` なし） | `jack` |
 | `SLACK_WEBHOOK_URL` | Slack の Incoming Webhook URL | なし（必須） |
-| `VLLM_BASE_URL` | OpenAI 互換 API のベース URL | `http://192.168.2.131:8888/v1` |
-| `VLLM_API_KEY` | API キー（vLLM を `--api-key` なしで起動しているなら任意の値でよい） | `EMPTY` |
-| `VLLM_MODEL` | 要約に使うモデル名 | `qwen3.8-flash-next` |
+| `LLM_PROFILE` | 使う LLM プロファイル名（下記参照） | `llm_profiles.yaml` の `default` |
+| `VLLM_API_KEY` など | LLM の API キー。変数名は `llm_profiles.yaml` の `api_key_env` で指定する | `EMPTY` |
 
 すでに環境変数が設定されている場合は、`.env` よりそちらが優先されます。
+
+### LLM の切り替え
+
+要約に使う LLM（OpenAI 互換 API）の接続先は [llm_profiles.yaml](llm_profiles.yaml) に名前付きで登録します。API キーはこのファイルに書かず、`.env` に置いた変数の名前を `api_key_env` で指定します。
+
+```yaml
+default: suisei2
+
+profiles:
+  suisei2:
+    base_url: http://192.168.2.131:8888/v1
+    model: qwen3.8-flash-next
+    api_key_env: VLLM_API_KEY
+    temperature: 0.5   # 省略時は 0.5
+```
+
+使うプロファイルは次の優先順で決まります。
+
+1. 実行時の `--llm` オプション
+2. 環境変数 `LLM_PROFILE`（`.env` に書いてもよい）
+3. `llm_profiles.yaml` の `default`
+
+`api_key_env` を省略した場合や、指定した環境変数が設定されていない場合は、API キーとして `EMPTY` を使います。
 
 ### X へのログイン（初回のみ）
 
@@ -56,6 +78,9 @@ python shokai.py
 
 ```bash
 python fetch_send.py
+
+# その回だけ別の LLM を使う
+python fetch_send.py --llm openai
 ```
 
 実行すると、次の順に処理が進みます。
@@ -74,6 +99,7 @@ python fetch_send.py
 | --- | --- |
 | `shokai.py` | 初回ログイン用。ブラウザを開いてログイン情報を保存する |
 | `fetch_send.py` | 投稿の取得・要約・Slack への送信を行う |
+| `llm_profiles.yaml` | 要約に使う LLM の接続先一覧 |
 | `.env.example` | 設定ファイルのひな形 |
 | `requirements.txt` | 依存パッケージ |
 

@@ -1,0 +1,24 @@
+# 要約に使う LLM の接続先一覧（OpenAI 互換 API）
+# API キーはここに書かず、api_key_env で .env の変数名を指定する
+
+# --llm や LLM_PROFILE を指定しなかったときに使うプロファイル
+default: suisei2
+
+profiles:
+  suisei2:
+    base_url: http://192.168.2.131:8888/v1
+    model: qwen3.8-flash-next
+    api_key_env: VLLM_API_KEY  # vLLM を --api-key なしで起動していれば任意の値でよい
+    temperature: 0.5
+
+  ollama:
+    base_url: http://localhost:11434/v1
+    model: gemma4:26b-a4b
+    temperature: 0.5
+
+  # 例: OpenAI を使う場合（.env に OPENAI_API_KEY を設定する）
+  # openai:
+  #   base_url: https://api.openai.com/v1
+  #   model: gpt-5-mini
+  #   api_key_env: OPENAI_API_KEY
+  #   temperature: 0.5

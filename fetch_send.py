@@ -1,11 +1,14 @@
 # fetch_and_notify.py
+import argparse
 import os
+import sys
 from datetime import date, timedelta
 from urllib.parse import quote
 import requests
+import yaml
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-# suisei2 の vLLM（OpenAI 互換 API）を使用
+# OpenAI 互換 API（vLLM など）を使用。接続先は llm_profiles.yaml で切り替える
 from openai import OpenAI
 
 # .env から設定を読み込む（既に環境変数が設定されている場合はそちらを優先）
@@ -15,9 +18,7 @@ load_dotenv()
 TARGET_USERNAME = os.environ.get("TARGET_USERNAME", "jack").lstrip("@")  # 取得対象のXユーザーID（@なし）
 USER_DATA_DIR = "./x_user_data"
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
-VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://192.168.2.131:8888/v1")
-VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "EMPTY")  # vLLM を --api-key なしで起動していれば任意の値でよい
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "qwen3.8-flash-next")
+LLM_PROFILES_PATH = "llm_profiles.yaml"
 DAYS = 7  # 今日を含めて何日分を取得するか
 
 def get_recent_tweets(username, days=7, max_scrolls=50, max_idle_scrolls=3):
@@ -78,9 +79,28 @@ def get_recent_tweets(username, days=7, max_scrolls=50, max_idle_scrolls=3):
     tweets.sort(key=lambda t: t["posted_at"])
     return tweets
 
-def summarize_tweets(tweets):
-    client = OpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
-    model = VLLM_MODEL
+def load_llm_profile(name=None):
+    """llm_profiles.yaml からプロファイルを読み込む（name > 環境変数 LLM_PROFILE > default の順で選ぶ）"""
+    with open(LLM_PROFILES_PATH, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    profiles = config.get("profiles", {})
+    name = name or os.environ.get("LLM_PROFILE") or config.get("default")
+    if name not in profiles:
+        sys.exit(f"LLM プロファイル '{name}' が {LLM_PROFILES_PATH} にありません（候補: {', '.join(profiles)}）")
+
+    profile = profiles[name]
+    api_key_env = profile.get("api_key_env")
+    return {
+        "name": name,
+        "base_url": profile["base_url"],
+        "model": profile["model"],
+        # api_key_env が未指定、または環境変数が未設定なら "EMPTY"（認証なしの vLLM 向け）
+        "api_key": os.environ.get(api_key_env, "EMPTY") if api_key_env else "EMPTY",
+        "temperature": profile.get("temperature", 0.5),
+    }
+
+def summarize_tweets(tweets, llm):
+    client = OpenAI(base_url=llm["base_url"], api_key=llm["api_key"])
     formatted_tweets = "\n---\n".join(
         [f"{i+1}. [{t['posted_at']}] {t['text']}" for i, t in enumerate(tweets)]
     )
@@ -92,9 +112,9 @@ def summarize_tweets(tweets):
 {formatted_tweets}
 """
     response = client.chat.completions.create(
-        model=model,
+        model=llm["model"],
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.5,
+        temperature=llm["temperature"],
     )
     return response.choices[0].message.content
 
@@ -105,6 +125,13 @@ def send_to_slack(summary, username):
     requests.post(SLACK_WEBHOOK_URL, json=payload)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="X の投稿を要約して Slack に送る")
+    parser.add_argument("--llm", help=f"使う LLM プロファイル名（{LLM_PROFILES_PATH} の profiles のキー）")
+    args = parser.parse_args()
+    # ツイート取得の前に読み込み、プロファイル名の誤りをすぐ検出する
+    llm = load_llm_profile(args.llm)
+    print(f"LLM: {llm['name']}（{llm['model']}）")
+
     print("1. ツイート取得中...")
     tweets = get_recent_tweets(TARGET_USERNAME, days=DAYS)
     
@@ -113,7 +140,7 @@ if __name__ == "__main__":
         exit(1)
         
     print(f"2. {len(tweets)}件のツイートを要約中...")
-    summary = summarize_tweets(tweets)
+    summary = summarize_tweets(tweets, llm)
     
     print("3. Slackへ送信中...")
     send_to_slack(summary, TARGET_USERNAME)
