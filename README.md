@@ -1,10 +1,10 @@
 # x_matome
 
-指定した X（旧 Twitter）ユーザーの直近 7 日間の投稿を取得し、LLM で要約して Slack に送るスクリプトです。
+指定した X（旧 Twitter）ユーザーの直近 7 日間の投稿を取得し、LLM で要約して Slack または Discord に送るスクリプトです。
 
 1. Playwright でブラウザを操作し、X の検索（`from:` / `since:` / `until:`）から投稿を集める
 2. vLLM などの OpenAI 互換 API で投稿を要約する
-3. 要約を Slack の Incoming Webhook に送る
+3. 要約を Slack / Discord の Incoming Webhook に送る（送信先は `SEND_TO` で指定）
 
 ## 必要なもの
 
@@ -34,7 +34,9 @@ cp .env.example .env
 | 変数名 | 内容 | 既定値 |
 | --- | --- | --- |
 | `TARGET_USERNAME` | 取得対象の X ユーザー ID（`@` なし） | `jack` |
-| `SLACK_WEBHOOK_URL` | Slack の Incoming Webhook URL | なし（必須） |
+| `SEND_TO` | 要約の送信先（`SLACK` または `DISCORD`） | `SLACK` |
+| `SLACK_WEBHOOK_URL` | Slack の Incoming Webhook URL（`SEND_TO=SLACK` のとき必須） | なし |
+| `DISCORD_WEBHOOK_URL` | Discord の Webhook URL（`SEND_TO=DISCORD` のとき必須） | なし |
 | `LLM_PROFILE` | 使う LLM プロファイル名（下記参照） | `llm_profiles.yaml` の `default` |
 | `VLLM_API_KEY` など | LLM の API キー。変数名は `llm_profiles.yaml` の `api_key_env` で指定する | `EMPTY` |
 
@@ -87,7 +89,7 @@ python fetch_send.py --llm openai
 
 1. 対象ユーザーの直近 7 日分（今日を含む）の投稿を取得する
 2. 取得した投稿を LLM で要約する
-3. 要約を Slack に送る
+3. 要約を `SEND_TO` で指定した送信先（Slack / Discord）に送る
 
 期間内に投稿がない場合や取得に失敗した場合は、「ツイートが取得できませんでした。」と表示して終了します（終了コード 1）。
 
@@ -98,7 +100,7 @@ python fetch_send.py --llm openai
 | ファイル | 役割 |
 | --- | --- |
 | `shokai.py` | 初回ログイン用。ブラウザを開いてログイン情報を保存する |
-| `fetch_send.py` | 投稿の取得・要約・Slack への送信を行う |
+| `fetch_send.py` | 投稿の取得・要約・送信先への送信を行う |
 | `llm_profiles.yaml` | 要約に使う LLM の接続先一覧 |
 | `.env.example` | 設定ファイルのひな形 |
 | `requirements.txt` | 依存パッケージ |

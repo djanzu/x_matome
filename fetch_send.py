@@ -17,7 +17,9 @@ load_dotenv()
 # 設定項目
 TARGET_USERNAME = os.environ.get("TARGET_USERNAME", "jack").lstrip("@")  # 取得対象のXユーザーID（@なし）
 USER_DATA_DIR = "./x_user_data"
+SEND_TO = os.environ.get("SEND_TO", "SLACK").strip().upper()  # 送信先（SLACK または DISCORD）
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 LLM_PROFILES_PATH = "llm_profiles.yaml"
 DAYS = 7  # 今日を含めて何日分を取得するか
 
@@ -124,6 +126,27 @@ def send_to_slack(summary, username):
     }
     requests.post(SLACK_WEBHOOK_URL, json=payload)
 
+def send_to_discord(summary, username):
+    payload = {
+        "content": f"🤖 **@{username} の直近{DAYS}日間のツイート要約**\n\n{summary}"
+    }
+    requests.post(DISCORD_WEBHOOK_URL, json=payload)
+
+def send_summary(summary, username):
+    """SEND_TO で指定された送信先に要約を送る"""
+    if SEND_TO == "SLACK":
+        if not SLACK_WEBHOOK_URL:
+            sys.exit("SLACK_WEBHOOK_URL が設定されていません（.env を確認してください）")
+        print("3. Slackへ送信中...")
+        send_to_slack(summary, username)
+    elif SEND_TO == "DISCORD":
+        if not DISCORD_WEBHOOK_URL:
+            sys.exit("DISCORD_WEBHOOK_URL が設定されていません（.env を確認してください）")
+        print("3. Discordへ送信中...")
+        send_to_discord(summary, username)
+    else:
+        sys.exit(f"不明な SEND_TO '{SEND_TO}' です（候補: SLACK, DISCORD）")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="X の投稿を要約して Slack に送る")
     parser.add_argument("--llm", help=f"使う LLM プロファイル名（{LLM_PROFILES_PATH} の profiles のキー）")
@@ -142,7 +165,6 @@ if __name__ == "__main__":
     print(f"2. {len(tweets)}件のツイートを要約中...")
     summary = summarize_tweets(tweets, llm)
     
-    print("3. Slackへ送信中...")
-    send_to_slack(summary, TARGET_USERNAME)
+    send_summary(summary, TARGET_USERNAME)
     print("完了しました。")
 
