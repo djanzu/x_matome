@@ -95,12 +95,47 @@ python fetch_send.py --llm openai
 
 取得する日数は [fetch_send.py](fetch_send.py) の `DAYS` で変えられます。
 
+### 途中でエラーが起きたとき（再開）
+
+処理の途中でエラーが発生しても、作業状態を SQLite（`work.sqlite`）に保存しているため、次に `fetch_send.py` を実行すると**前回異常終了した直前の工程から再開**します。実行時の進行は次のようになります。
+
+```
+ツイートを取得
+  ↓
+ツイートを table tweets へ保存（done_flg=false）
+  ↓
+LLM に送信
+  ↓
+LLM の返答を table llm_responses へ保存（sent_flg=false）、table tweets の done_flg=true
+  ↓
+Slack / Discord に送信
+  ↓
+table llm_responses の該当データの sent_flg=true
+```
+
+各工程が**失敗なく完了するたびに、消費済みのデータを逐次削除**し、全工程が完了したら作業ファイル自体を削除します。保存される内容は次のとおりです。
+
+| 保存内容 | フラグ | 削除タイミング |
+| --- | --- | --- |
+| `tweets` テーブル（取得した投稿） | `done_flg` | LLM 要約が完了したら削除 |
+| `llm_responses` テーブル（要約結果） | `sent_flg` | 送信が完了したら削除 |
+| `work.sqlite`（作業ファイル） | - | 全工程が完了したら削除 |
+
+再開の例：
+
+- 取得後にエラー → 次回は「ツイート取得済み・未要約」の状態から、**要約工程から再開**（取得はやり直さない）
+- 要約後にエラー → 次回は「要約済み・未送信」の状態から、**送信工程から再開**（取得・要約はやり直さない）
+- 送信失敗 → `sent_flg` は false のまま残るので、次回に**再送**される
+
+作業ファイルの保存先は環境変数 `WORK_DB_PATH` で変更できます（省略時は `work.sqlite`）。
+
 ## ファイル構成
 
 | ファイル | 役割 |
 | --- | --- |
 | `shokai.py` | 初回ログイン用。ブラウザを開いてログイン情報を保存する |
 | `fetch_send.py` | 投稿の取得・要約・送信先への送信を行う |
+| `workdb.py` | 作業状態を SQLite に保存・再開する（`tweets` / `llm_responses` テーブル） |
 | `llm_profiles.yaml` | 要約に使う LLM の接続先一覧 |
 | `.env.example` | 設定ファイルのひな形 |
 | `requirements.txt` | 依存パッケージ |
@@ -108,5 +143,6 @@ python fetch_send.py --llm openai
 ## 注意
 
 - `x_user_data/` と `.env` にはログイン情報や Webhook URL が含まれます。`.gitignore` で除外していますが、共有しないよう注意してください。
+- `work.sqlite` には取得したツイートや要約文が含まれます。`.gitignore` で除外していますが、共有しないよう注意してください。
 - X の画面構成が変わると、投稿を取得できなくなることがあります。
 - ログインの有効期限が切れたら、もう一度 `shokai.py` を実行してください。
