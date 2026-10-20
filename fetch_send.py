@@ -31,7 +31,7 @@ def get_recent_tweets(username, days=7, max_scrolls=50, max_idle_scrolls=3):
     until = today + timedelta(days=1)         # until は指定日を含まないため翌日を指定
     query = f"from:@{username} since:{since.isoformat()} until:{until.isoformat()}"
     # f=live で「最新」タブ（時系列順）を表示
-    url = f"https://x.com/search?q={quote(query)}&src=typed_query&f=live"
+    url = f"https://x.com/search?q={quote(query)}%20-filter%3Aretweets&src=typed_query&f=live"
 
     tweets = []
     with sync_playwright() as p:
