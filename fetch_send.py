@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+import time
 from datetime import date, timedelta
 from urllib.parse import quote
 import requests
@@ -160,24 +161,62 @@ def send_to_slack(summary, username):
     r = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=30)
     r.raise_for_status()
 
-def send_to_discord(summary, username):
-    payload = {
-        "content": f"🤖 **@{username} の直近{DAYS}日間のツイート要約**\n\n{summary}"
-    }
-    # 送信失敗時は例外を上げ、sent_flg を false のままにして再開時に再送できるようにする
-    try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30)
-        r.raise_for_status()
-    except Exception as e:
-        # 1. そもそも通信が成功してレスポンスオブジェクト(r)が存在するか確認
-        if 'r' in locals():
-            print("status:", r.status_code)
-            print("response:", r.text)
+def split_message(text, max_length=2000):
+    """テキストを max_length 文字以内のチャンクに分割する（できるだけ改行で区切る）"""
+    if len(text) <= max_length:
+        return [text]
+
+    chunks = []
+    current_chunk = []
+    current_len = 0
+
+    for line in text.splitlines(keepends=True):
+        while len(line) > max_length:
+            if current_chunk:
+                chunks.append("".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            chunks.append(line[:max_length])
+            line = line[max_length:]
+
+        if current_len + len(line) > max_length:
+            chunks.append("".join(current_chunk))
+            current_chunk = [line]
+            current_len = len(line)
         else:
-            print("通信自体に失敗しました（タイムアウト、ドメインエラーなど）")
-            
-        print("payload:", payload)
-        raise e
+            current_chunk.append(line)
+            current_len += len(line)
+
+    if current_chunk:
+        chunks.append("".join(current_chunk))
+
+    return chunks
+
+def send_to_discord(summary, username):
+    full_message = f"🤖 **@{username} の直近{DAYS}日間のツイート要約**\n\n{summary}"
+    chunks = split_message(full_message, max_length=2000)
+
+    for i, chunk in enumerate(chunks):
+        payload = {"content": chunk}
+        # 送信失敗時は例外を上げ、sent_flg を false のままにして再開時に再送できるようにする
+        r = None
+        try:
+            r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30)
+            r.raise_for_status()
+        except Exception as e:
+            # 1. そもそも通信が成功してレスポンスオブジェクト(r)が存在するか確認
+            if r is not None:
+                print("status:", r.status_code)
+                print("response:", r.text)
+            else:
+                print("通信自体に失敗しました（タイムアウト、ドメインエラーなど）")
+
+            print(f"payload ({i+1}/{len(chunks)}):", payload)
+            raise e
+
+        # 連続送信時のレートリミット対策として少し待機
+        if i < len(chunks) - 1:
+            time.sleep(1)
 
 def send_summary(summary, username):
     """SEND_TO で指定された送信先に要約を送る"""
